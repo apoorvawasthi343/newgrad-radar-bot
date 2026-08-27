@@ -291,7 +291,7 @@ def post_to_discord(jobs, webhook_url):
         })
 
     payload = {
-        "content": f"**{len(embeds)} new grad AI/ML roles** "
+        "content": f"<@YOUR_USER_ID> **{len(embeds)} new grad AI/ML roles** "
                    f"· {time.strftime('%a %b %d')}",
         "embeds": embeds,
     }
