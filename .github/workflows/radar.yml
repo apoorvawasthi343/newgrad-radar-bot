@@ -1,0 +1,80 @@
+# This file tells GitHub to run your script on a schedule, on GitHub's own
+# computers, for free. Your laptop can be closed.
+#
+# It MUST live at .github/workflows/radar.yml -- that exact path. GitHub only
+# looks there.
+
+name: New Grad Radar
+
+# ---------------------------------------------------------------------------
+# WHEN does this run?
+# ---------------------------------------------------------------------------
+on:
+  schedule:
+    # Cron format: minute hour day-of-month month day-of-week
+    #              13:00 UTC = 9am Eastern (8am during winter)
+    #              1-5 = Monday through Friday
+    # IMPORTANT: GitHub cron is ALWAYS UTC. It does not know your timezone.
+    - cron: "0 13 * * 1-5"
+
+  # This adds a "Run workflow" button in the Actions tab so you can trigger it
+  # by hand. Keep this -- you will use it constantly while debugging.
+  workflow_dispatch:
+
+# ---------------------------------------------------------------------------
+# WHAT is this workflow allowed to do?
+# ---------------------------------------------------------------------------
+permissions:
+  # We need write access because the job commits state/seen.json back to the
+  # repo after each run. That file is how the bot remembers what it sent you.
+  # Without this line, the git push at the bottom fails with a 403.
+  contents: write
+
+# Stops two runs from fighting over seen.json if you trigger a manual run
+# while the scheduled one is going.
+concurrency:
+  group: radar
+  cancel-in-progress: false
+
+jobs:
+  radar:
+    # A fresh Ubuntu virtual machine, created for this run and destroyed after.
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: copy your repo onto that machine. Without this, the machine is
+      # empty -- it has no idea what repo it belongs to.
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      # Step 2: install Python.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Step 3: the actual work.
+      # `secrets.X` reads from Settings > Secrets and variables > Actions.
+      # Never paste these values into the file -- the repo is public-readable
+      # by anyone you share it with, and a leaked webhook gets spammed fast.
+      - name: Run radar
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python radar.py
+
+      # Step 4: save the updated memory back into the repo.
+      # The VM is destroyed after this run, so anything not committed is lost.
+      - name: Commit seen.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/seen.json
+          # `git commit` exits with an error code when there is nothing to
+          # commit, which would fail the whole workflow. `|| exit 0` means
+          # "if that happens, finish successfully instead."
+          git diff --staged --quiet || git commit -m "radar: update seen listings"
+          git push || exit 0
